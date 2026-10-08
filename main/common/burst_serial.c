@@ -47,8 +47,29 @@ static bool baud_command(const char *line) {
             burst_serial_send(response, length);
             return true;
         }
-        unsigned baud = !strcmp(line, "BAUD 1000000") ? 1000000 :
-                        !strcmp(line, "BAUD 2000000") ? 2000000 : 0;
+        /* unsigned baud = !strcmp(line, "BAUD 1000000") ? 1000000 :
+                        !strcmp(line, "BAUD 2000000") ? 2000000 : 0; */
+		unsigned baud = 0;
+
+		if (sscanf(line, "BAUD %u", &baud) != 1) {
+			baud = 0;
+		}
+
+		switch (baud) {
+			case 115200:
+			case 230400:
+			case 460800:
+			case 500000:
+			case 921600:
+			case 1000000:
+			case 2000000:
+				break;
+
+			default:
+				baud = 0;
+				break;
+		}
+		
         if (!baud) {
             burst_serial_send("ERR baud_args\n", sizeof("ERR baud_args\n")-1);
             return true;
