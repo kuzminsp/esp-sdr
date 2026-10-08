@@ -1,4 +1,4 @@
-/* Original ESP32 RX-only backend for the ESP-SDR burst protocol.
+﻿/* Original ESP32 RX-only backend for the ESP-SDR burst protocol.
  * Register sequence derived from ESP-IDF's ESP32 librftest.a: adctrig/mac_init.
  */
 #include <stdio.h>
@@ -271,7 +271,11 @@ void app_main(void) {
     gain_max = (REG_READ(RX_GAIN) >> 8) & 127;
     REG_CLR_BIT(RX_GAIN, BIT(23)); /* Hardware AGC is the default. */
     fflush(stdout);
+    printf("SDR_DIAG: before UART init, baud=%d\n", CONFIG_ESP_SDR_UART_BAUD);
+    fflush(stdout);
     burst_serial_init();
+    printf("SDR_DIAG: after UART init, baud=%u\n", burst_serial_baud());
+    fflush(stdout);
     char line[128];
     for (;;) {
         int status = burst_serial_poll_line(line, sizeof(line));
@@ -280,3 +284,4 @@ void app_main(void) {
         else command(line);
     }
 }
+
