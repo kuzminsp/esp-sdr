@@ -38,6 +38,38 @@ static struct {
  * is completely transmitted at the old rate before changing UART0. The rate
  * is session-only; every boot starts with CONFIG_ESP_SDR_UART_BAUD. */
 static bool baud_command(const char *line) {
+#if CONFIG_ESP_SDR_UART_ENABLED
+    if (active_port == BURST_SERIAL_UART &&
+        strcmp(line, "BAUDTEST 1000000") == 0) {
+
+        burst_serial_send("BAUDTEST START\n", 15);
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(1000));
+
+        esp_err_t set_result = uart_set_baudrate(UART_NUM_0, 1000000);
+        uint32_t actual_baud = 0;
+        esp_err_t get_result =
+            uart_get_baudrate(UART_NUM_0, &actual_baud);
+
+        vTaskDelay(pdMS_TO_TICKS(3000));
+
+        esp_err_t restore_result =
+            uart_set_baudrate(UART_NUM_0, 115200);
+
+        uart_baud = 115200;
+        uart_flush_input(UART_NUM_0);
+        memset(&input[BURST_SERIAL_UART], 0,
+               sizeof(input[BURST_SERIAL_UART]));
+
+        char diagnostic[160];
+        int n = snprintf(diagnostic, sizeof(diagnostic),
+            "BAUDTEST RESULT set=%d get=%d actual=%lu restore=%d\n",
+            (int)set_result, (int)get_result,
+            (unsigned long)actual_baud, (int)restore_result);
+
+        burst_serial_send(diagnostic, n);
+        return true;
+    }
+#endif
     if (strcmp(line, "BAUD?") && strcmp(line, "BAUD") && strncmp(line, "BAUD ", 5)) return false;
 #if CONFIG_ESP_SDR_UART_ENABLED
     if (active_port == BURST_SERIAL_UART) {
