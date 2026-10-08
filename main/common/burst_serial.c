@@ -37,6 +37,59 @@ static struct {
 /* Transport commands are consumed here for every receiver backend. The ACK
  * is completely transmitted at the old rate before changing UART0. The rate
  * is session-only; every boot starts with CONFIG_ESP_SDR_UART_BAUD. */
+/* Temporary two-way UART test; returns to 115200 without host commands. */
+static bool baud_probe_command(const char *line) {
+    if (strcmp(line, "BAUDPROBE 1000000") != 0) return false;
+#if CONFIG_ESP_SDR_UART_ENABLED
+    if (active_port != BURST_SERIAL_UART) return true;
+
+    static const char start[] = "BAUDPROBE START\n";
+    if (!burst_serial_send(start, sizeof(start) - 1) ||
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(1000)) != ESP_OK) return true;
+
+    esp_err_t set_rc = uart_set_baudrate(UART_NUM_0, 1000000);
+    uint32_t actual = 0;
+    esp_err_t get_rc = uart_get_baudrate(UART_NUM_0, &actual);
+    unsigned received = 0;
+    unsigned pattern = 0;
+    bool tx_ok = false;
+
+    if (set_rc == ESP_OK) {
+        uart_baud = 1000000;
+        uart_flush_input(UART_NUM_0);
+        vTaskDelay(pdMS_TO_TICKS(250)); /* Host switches to 1M here. */
+
+        static const char probe[] = "ESP32_TX_1000000_OK\n";
+        tx_ok = burst_serial_send(probe, sizeof(probe) - 1);
+        int64_t deadline = esp_timer_get_time() + 2300000;
+        while (esp_timer_get_time() < deadline) {
+            uint8_t buf[128];
+            int n = uart_read_bytes(UART_NUM_0, buf, sizeof(buf),
+                                    pdMS_TO_TICKS(20));
+            for (int i = 0; i < n; ++i) {
+                ++received;
+                if (buf[i] == 0xA5) ++pattern;
+            }
+        }
+        uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(1000));
+    }
+
+    esp_err_t restore_rc = uart_set_baudrate(UART_NUM_0, 115200);
+    if (restore_rc == ESP_OK) uart_baud = 115200;
+    uart_flush_input(UART_NUM_0);
+    memset(&input[BURST_SERIAL_UART], 0, sizeof(input[BURST_SERIAL_UART]));
+    vTaskDelay(pdMS_TO_TICKS(850)); /* Host switches back to 115200. */
+
+    char report[176];
+    int len = snprintf(report, sizeof(report),
+        "BAUDPROBE RESULT set=%d get=%d actual=%lu tx=%d rx=%u a5=%u restore=%d\n",
+        (int)set_rc, (int)get_rc, (unsigned long)actual,
+        (int)tx_ok, received, pattern, (int)restore_rc);
+    if (len > 0 && len < (int)sizeof(report)) burst_serial_send(report, len);
+#endif
+    return true;
+}
+
 static bool baud_command(const char *line) {
 #if CONFIG_ESP_SDR_UART_ENABLED
     if (active_port == BURST_SERIAL_UART &&
@@ -212,6 +265,7 @@ int burst_serial_poll_line(char *line, size_t capacity) {
             if (overflow || used >= capacity) return -1;
             memcpy(line, input[port].line, used);
             line[used] = '\0';
+            if (baud_probe_command(line)) return 0;
             if (baud_command(line)) return 0;
             return 1;
         }
